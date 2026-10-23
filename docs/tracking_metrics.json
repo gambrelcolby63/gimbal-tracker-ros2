@@ -1,0 +1,10 @@
+{
+  "duration_s": 8.0,
+  "pan_rms_rad_after_1s": 0.049850169465464,
+  "tilt_rms_rad_after_1s": 0.0011255469450388222,
+  "mean_super_elevation_rad": 0.004594990197233668,
+  "mean_azimuth_lead_rad": 0.049260798448212795,
+  "final_position_error_m": 0.05540661815955009,
+  "mean_position_error_m_after_1s": 0.08346327127580963,
+  "lead_valid_fraction": 1.0
+}

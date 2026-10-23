@@ -1,0 +1,132 @@
+# Simulation-only gimbal tracker tuning.
+# Units are SI: meters, radians, seconds, volts, amperes, newton-meters.
+# Edit this file and rerun the analysis scripts or the ROS launch.
+
+plant:
+  # Substep the electrical pole (R/L ~ 1000 rad/s) inside each control period.
+  integration_dt_max_s: 0.0005
+  encoder_noise_std_rad: 0.0002
+  gyro_noise_std_rad_s: 0.002
+  seed: 1
+  pan:
+    inertia_kg_m2: 0.05
+    viscous_n_m_s: 0.02
+    coulomb_n_m: 0.01
+    friction_smooth_rad_s: 0.05
+    resistance_ohm: 2.0
+    inductance_h: 0.002
+    torque_const_n_m_per_a: 0.1
+    back_emf_v_s: 0.1
+    voltage_limit_v: 24.0
+    torque_limit_n_m: 2.0
+    rate_limit_rad_s: 8.0
+    angle_min_rad: -3.141592653589793
+    angle_max_rad: 3.141592653589793
+    wrap_angle: true
+  tilt:
+    inertia_kg_m2: 0.04
+    viscous_n_m_s: 0.02
+    coulomb_n_m: 0.008
+    friction_smooth_rad_s: 0.05
+    resistance_ohm: 2.0
+    inductance_h: 0.002
+    torque_const_n_m_per_a: 0.1
+    back_emf_v_s: 0.1
+    voltage_limit_v: 24.0
+    torque_limit_n_m: 2.0
+    rate_limit_rad_s: 8.0
+    angle_min_rad: -1.15
+    angle_max_rad: 1.15
+    wrap_angle: false
+
+controller:
+  # Cascaded P (position) + PI (rate).
+  # rate_kff ≈ Kb + b R / Kt cancels back-EMF and viscous drop at constant rate.
+  # rate_kaff ≈ J R / Kt is the acceleration feedforward gain.
+  pan:
+    position:
+      kp: 4.0
+      ki: 0.0
+      kd: 0.0
+      kaw: 4.0
+    rate:
+      kp: 6.0
+      ki: 40.0
+      kd: 0.0
+      kaw: 12.0
+    position_kff: 1.0
+    rate_kff: 0.5
+    rate_kaff: 1.0
+    rate_limit_rad_s: 3.0
+    voltage_limit_v: 24.0
+    wrap_error: true
+  tilt:
+    position:
+      kp: 4.0
+      ki: 0.0
+      kd: 0.0
+      kaw: 4.0
+    rate:
+      kp: 6.0
+      ki: 40.0
+      kd: 0.0
+      kaw: 12.0
+    position_kff: 1.0
+    rate_kff: 0.5
+    rate_kaff: 0.8
+    rate_limit_rad_s: 3.0
+    voltage_limit_v: 24.0
+    wrap_error: false
+
+estimator:
+  # cv: piecewise-constant white acceleration. ca: piecewise-constant white jerk.
+  model: cv
+  accel_std_m_s2: 0.4
+  jerk_std_m_s3: 1.0
+  cartesian_std_m: 0.35
+  azimuth_std_rad: 0.002
+  elevation_std_rad: 0.002
+  range_std_m: 0.5
+  p0_pos_var_m2: 4.0
+  p0_vel_var_m2_s2: 25.0
+  p0_acc_var_m2_s4: 4.0
+
+lead:
+  # Constant projectile speed. gravity_m_s2 = 0 is pure kinematic lead;
+  # a positive value adds vacuum super-elevation. This is not a weapon model.
+  projectile_speed_m_s: 220.0
+  gravity_m_s2: 9.80665
+  max_iterations: 12
+  tolerance_s: 1.0e-6
+  muzzle_m: [0.0, 0.0, 0.0]
+
+target:
+  trajectory: constant_velocity
+  position_m: [50.0, -40.0, 3.0]
+  velocity_m_s: [0.0, 12.0, 0.0]
+  acceleration_m_s2: [0.0, 0.0, 0.0]
+  circle_radius_m: 40.0
+  circle_omega_rad_s: 0.15
+  circle_z_m: 4.0
+
+analysis:
+  step_rad: 0.25
+  step_duration_s: 4.0
+  step_dt_s: 0.001
+  mc_runs: 50
+  mc_duration_s: 5.0
+  mc_dt_s: 0.05
+  mc_seed: 7
+  mc_pos_var: 4.0
+  mc_vel_var: 4.0
+  mc_acc_var: 4.0
+  mc_accel_std: 1.0
+  mc_meas_std: 0.5
+  tracking_duration_s: 8.0
+  tracking_dt_s: 0.01
+
+ros:
+  rate_hz: 200.0
+  measurement: cartesian
+  sensor_seed: 11
+  plant_seed: 13

@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  core:
+    name: C++ core, tests, and analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            ninja-build \
+            pkg-config \
+            libeigen3-dev \
+            libyaml-cpp-dev \
+            python3 \
+            python3-venv \
+            python3-pip
+
+      - name: Configure and build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Analysis
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --disable-pip-version-check -r requirements.txt
+          PYTHON="$PWD/.venv/bin/python" BUILD_DIR="$PWD/build" bash scripts/run_analysis.sh
+
+      - name: Upload plots
+        uses: actions/upload-artifact@v4
+        with:
+          name: analysis-plots
+          path: |
+            docs/*.png
+            docs/*metrics.json
+            docs/estimator_mc.json
+
+  ros2:
+    name: ROS 2 Humble build
+    runs-on: ubuntu-latest
+    container: ros:humble-ros-base
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      ROS_LOCALHOST_ONLY: "1"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install git
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates
+
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            ninja-build \
+            pkg-config \
+            libeigen3-dev \
+            libyaml-cpp-dev \
+            python3-colcon-common-extensions \
+            ros-humble-rclcpp \
+            ros-humble-std-msgs \
+            ros-humble-geometry-msgs \
+            ros-humble-visualization-msgs \
+            ros-humble-tf2 \
+            ros-humble-tf2-ros \
+            ros-humble-ament-cmake \
+            ros-humble-rosidl-default-generators \
+            ros-humble-rosidl-default-runtime \
+            ros-humble-launch-ros
+          rm -rf /var/lib/apt/lists/*
+
+      - name: Build workspace
+        run: |
+          source /opt/ros/humble/setup.bash
+          cd ros2_ws
+          colcon build --event-handlers console_direct+
+
+      - name: Smoke test
+        run: |
+          source /opt/ros/humble/setup.bash
+          source ros2_ws/install/setup.bash
+          # The CLI daemon caches a partial graph. Talk to DDS directly and
+          # pass each message type so echo waits for data instead of guessing.
+          ros2 daemon stop >/dev/null 2>&1 || true
+          ros2 launch gimbal_tracker_ros gimbal_tracker.launch.py rviz:=false &
+          LAUNCH_PID=$!
+          cleanup() {
+            kill "$LAUNCH_PID" >/dev/null 2>&1 || true
+            sleep 1
+            kill -9 "$LAUNCH_PID" >/dev/null 2>&1 || true
+            wait "$LAUNCH_PID" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          sleep 8
+          ros2 topic list -t || true
+          check_topic() {
+            local topic="$1"
+            local msg_type="$2"
+            echo "Waiting for ${topic} (${msg_type})"
+            timeout 30 ros2 topic echo --once --qos-reliability reliable \
+              "$topic" "$msg_type" >/dev/null
+          }
+          check_topic /target/truth gimbal_tracker_msgs/msg/TargetTruth
+          check_topic /sensor/measurement gimbal_tracker_msgs/msg/SensorMeasurement
+          check_topic /target/estimate gimbal_tracker_msgs/msg/TargetEstimate
+          check_topic /gimbal/state gimbal_tracker_msgs/msg/GimbalState
+          check_topic /gimbal/command gimbal_tracker_msgs/msg/GimbalCommand
+          check_topic /gimbal/setpoint gimbal_tracker_msgs/msg/TrackSetpoint

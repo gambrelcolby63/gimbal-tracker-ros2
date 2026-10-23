@@ -1,0 +1,21 @@
+{
+  "name": "Gimbal Tracker ROS 2 Humble",
+  "build": {
+    "dockerfile": "../Dockerfile"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools",
+        "ms-python.python",
+        "ms-iot.vscode-ros"
+      ]
+    }
+  },
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "containerEnv": {
+    "ROS_DISTRO": "humble",
+    "ROS_LOCALHOST_ONLY": "1"
+  }
+}
