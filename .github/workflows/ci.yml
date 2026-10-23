@@ -99,6 +99,9 @@ jobs:
         run: |
           source /opt/ros/humble/setup.bash
           source ros2_ws/install/setup.bash
+          # The CLI daemon caches a partial graph. Talk to DDS directly and
+          # pass each message type so echo waits for data instead of guessing.
+          ros2 daemon stop >/dev/null 2>&1 || true
           ros2 launch gimbal_tracker_ros gimbal_tracker.launch.py rviz:=false &
           LAUNCH_PID=$!
           cleanup() {
@@ -109,7 +112,17 @@ jobs:
           }
           trap cleanup EXIT
           sleep 8
-          for topic in /target/truth /sensor/measurement /target/estimate /gimbal/state /gimbal/command /gimbal/setpoint; do
-            echo "Waiting for $topic"
-            timeout 20 ros2 topic echo --once "$topic" >/dev/null
-          done
+          ros2 topic list -t || true
+          check_topic() {
+            local topic="$1"
+            local msg_type="$2"
+            echo "Waiting for ${topic} (${msg_type})"
+            timeout 30 ros2 topic echo --once --qos-reliability reliable \
+              "$topic" "$msg_type" >/dev/null
+          }
+          check_topic /target/truth gimbal_tracker_msgs/msg/TargetTruth
+          check_topic /sensor/measurement gimbal_tracker_msgs/msg/SensorMeasurement
+          check_topic /target/estimate gimbal_tracker_msgs/msg/TargetEstimate
+          check_topic /gimbal/state gimbal_tracker_msgs/msg/GimbalState
+          check_topic /gimbal/command gimbal_tracker_msgs/msg/GimbalCommand
+          check_topic /gimbal/setpoint gimbal_tracker_msgs/msg/TrackSetpoint
