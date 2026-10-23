@@ -1,0 +1,37 @@
+{
+  "simulation_no_coulomb": {
+    "rise_time_s": 0.261,
+    "overshoot_percent": 9.686348785425558,
+    "settling_time_s": 1.88,
+    "steady_state_error_rad": 4.471691842466331e-05,
+    "peak_rad": 0.2742158719635639
+  },
+  "simulation_with_coulomb": {
+    "rise_time_s": 0.266,
+    "overshoot_percent": 8.905197491933237,
+    "settling_time_s": 1.217,
+    "steady_state_error_rad": 2.560510171899435e-06,
+    "peak_rad": 0.2722629937298331
+  },
+  "linear_model": {
+    "rise_time_s": 0.262,
+    "overshoot_percent": 9.505660457091647,
+    "settling_time_s": 1.877,
+    "steady_state_error_rad": 4.694714985254626e-05,
+    "peak_rad": 0.2737641511427291
+  },
+  "linear_vs_simulation_rms_rad": 0.00024172505712686474,
+  "inner_rate_loop": {
+    "gain_margin_db": null,
+    "phase_margin_deg": 52.869116598846546,
+    "phase_crossover_rad_s": null,
+    "gain_crossover_rad_s": 7.854506810377246
+  },
+  "outer_position_loop": {
+    "gain_margin_db": 28.05424629064854,
+    "phase_margin_deg": 53.14107465980118,
+    "phase_crossover_rad_s": 26.398925032678655,
+    "gain_crossover_rad_s": 5.783326871307876
+  },
+  "step_rad": 0.25
+}
