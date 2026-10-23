@@ -2,6 +2,10 @@
 
 [![CI](https://github.com/gambrelcolby63/gimbal-tracker-ros2/actions/workflows/ci.yml/badge.svg)](https://github.com/gambrelcolby63/gimbal-tracker-ros2/actions/workflows/ci.yml)
 
+<img src="docs/demo/flyby.gif" alt="Top-down flyby of the simulated tracker. The turret sits at the origin, its barrel swings onto a crossing target, orange dots are noisy sensor fixes, the purple trace is the Kalman estimate, and the star is the intercept the gimbal leads." width="360">
+
+The portrait clip is the shipped flyby, slowed to one-third speed so the motion is easy to follow. It is a picture of the simulator: no weapon, seeker, or platform.
+
 A simulated two-axis gimbal that estimates a moving target and points at the intercept of a constant-speed projectile. The control, estimation, and lead math live in a ROS-free C++17 library. A ROS 2 Humble package is a thin wrapper around that library.
 
 This is a closed-loop controls exercise: a motor model, cascaded PID, a Kalman filter, and vacuum kinematics. There is no weapon, fuze, seeker hardware, or platform integration. The "projectile" is a point mass with a speed you set in YAML.
@@ -38,8 +42,8 @@ The two axes are independent. That is the usual model for a mass-balanced gimbal
 | `config/gimbal_tracker.yaml` | Plant, gains, filter, lead, and trajectory tuning. |
 | `tests/` | GoogleTest for the controller, Kalman filter, and lead solver. |
 | `apps/` | Step response, Monte Carlo consistency, and closed-loop flyby. |
-| `scripts/` | Bode / step metrics (`python-control`) and NEES / RMSE plots. |
-| `docs/` | Generated plots and metric JSON. |
+| `scripts/` | Bode / step metrics (`python-control`), NEES / RMSE plots, and the flyby animation. |
+| `docs/` | Generated plots, metric JSON, and `docs/demo/` (MP4 and GIF). |
 | `ros2_ws/` | Humble messages, five nodes, launch file, RViz config. |
 | `Dockerfile`, `.devcontainer/` | Humble dev container for local use or Codespaces. |
 
@@ -204,6 +208,14 @@ ctest --test-dir build --output-on-failure
 python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt
 PYTHON=python BUILD_DIR="$PWD/build" bash scripts/run_analysis.sh
 ```
+
+The phone-friendly flyby above is regenerated with the same library and YAML. It needs `ffmpeg` as well as the Python packages:
+
+```bash
+PYTHON=python BUILD_DIR="$PWD/build" bash scripts/make_flyby_demo.sh
+```
+
+That writes `docs/demo/flyby.mp4` and `docs/demo/flyby.gif` (about 24 seconds, portrait).
 
 `ctest` covers the cascaded loop (step specs, wrap, rate saturation, anti-windup, ramp feedforward), the CV and CA filters (scalar update, process-noise \(Q\), NEES/NIS, bearing Jacobian, azimuth branch cut), and the lead solver (closed-form intercepts, unreachable targets, vacuum drop).
 

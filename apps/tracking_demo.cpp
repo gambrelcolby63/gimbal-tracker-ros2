@@ -5,6 +5,7 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <string>
 
 namespace {
@@ -46,7 +47,9 @@ int main(int argc, char** argv) {
   if (!out) {
     return fail(std::string("Could not write ") + argv[2]);
   }
-  out << "t,los_az,los_el,cmd_az,cmd_el,gimbal_az,gimbal_el,pos_err,nees,tof,valid\n";
+  out << "t,los_az,los_el,cmd_az,cmd_el,gimbal_az,gimbal_el,pos_err,nees,tof,valid,"
+         "truth_x,truth_y,truth_z,meas_x,meas_y,meas_z,est_x,est_y,est_z,"
+         "aim_x,aim_y,aim_z,pan_err,tilt_err\n";
   out.precision(16);
 
   const gimbal_tracker::TargetTrajectory trajectory(config.target);
@@ -63,12 +66,25 @@ int main(int argc, char** argv) {
   double pan_sq = 0.0;
   double tilt_sq = 0.0;
 
+  const auto cartesian_from_bearing = [&](const Eigen::Vector3d& z) {
+    const double azimuth = z(0);
+    const double elevation = z(1);
+    const double range = z(2);
+    const double ce = std::cos(elevation);
+    Eigen::Vector3d position;
+    position << config.lead.muzzle.x + range * ce * std::cos(azimuth),
+        config.lead.muzzle.y + range * ce * std::sin(azimuth),
+        config.lead.muzzle.z + range * std::sin(elevation);
+    return position;
+  };
+
   for (int k = 0; k <= steps; ++k) {
     const double time = k * dt;
     const gimbal_tracker::TargetState truth = trajectory.at(time);
     const gimbal_tracker::LookAngles los =
         gimbal_tracker::lookAngles(config.lead.muzzle, truth.position);
 
+    Eigen::Vector3d measurement = Eigen::Vector3d::Zero();
     if (!filter.initialized()) {
       if (bearing) {
         Eigen::Vector3d z;
@@ -77,12 +93,12 @@ int main(int argc, char** argv) {
             std::max(0.05, los.range + sensor.sample(config.estimator.range_std));
         filter.initializeFromBearingRange(z, config.estimator.p0_pos, config.estimator.p0_vel,
                                           config.estimator.p0_acc);
+        measurement = cartesian_from_bearing(z);
       } else {
-        Eigen::Vector3d z;
-        z << truth.position.x + sensor.sample(config.estimator.cartesian_std),
+        measurement << truth.position.x + sensor.sample(config.estimator.cartesian_std),
             truth.position.y + sensor.sample(config.estimator.cartesian_std),
             truth.position.z + sensor.sample(config.estimator.cartesian_std);
-        filter.initializeFromCartesian(z, config.estimator.p0_pos, config.estimator.p0_vel,
+        filter.initializeFromCartesian(measurement, config.estimator.p0_pos, config.estimator.p0_vel,
                                        config.estimator.p0_acc);
       }
     } else {
@@ -97,13 +113,13 @@ int main(int argc, char** argv) {
         covariance(1, 1) = config.estimator.elevation_std * config.estimator.elevation_std;
         covariance(2, 2) = config.estimator.range_std * config.estimator.range_std;
         filter.updateBearingRange(z, covariance);
+        measurement = cartesian_from_bearing(z);
       } else {
-        Eigen::Vector3d z;
-        z << truth.position.x + sensor.sample(config.estimator.cartesian_std),
+        measurement << truth.position.x + sensor.sample(config.estimator.cartesian_std),
             truth.position.y + sensor.sample(config.estimator.cartesian_std),
             truth.position.z + sensor.sample(config.estimator.cartesian_std);
         const double variance = config.estimator.cartesian_std * config.estimator.cartesian_std;
-        filter.updateCartesian(z, Eigen::Matrix3d::Identity() * variance);
+        filter.updateCartesian(measurement, Eigen::Matrix3d::Identity() * variance);
       }
     }
 
@@ -126,9 +142,19 @@ int main(int argc, char** argv) {
     const double gimbal_az = plant.truth().pan.theta;
     const double gimbal_el = plant.truth().tilt.theta;
     const double pos_err = (estimate.position - truth.position).norm();
+    const double pan_err = gimbal_tracker::wrapPi(command_az - gimbal_az);
+    const double tilt_err = command_el - gimbal_el;
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    const double aim_x = lead.valid ? lead.intercept.x : nan;
+    const double aim_y = lead.valid ? lead.intercept.y : nan;
+    const double aim_z = lead.valid ? lead.intercept.z : nan;
     out << time << "," << los.azimuth << "," << los.elevation << "," << command_az << "," << command_el
         << "," << gimbal_az << "," << gimbal_el << "," << pos_err << "," << filter.nees(truth) << ","
-        << lead.time_of_flight << "," << (lead.valid ? 1 : 0) << "\n";
+        << lead.time_of_flight << "," << (lead.valid ? 1 : 0) << "," << truth.position.x << ","
+        << truth.position.y << "," << truth.position.z << "," << measurement(0) << "," << measurement(1)
+        << "," << measurement(2) << "," << estimate.position.x << "," << estimate.position.y << ","
+        << estimate.position.z << "," << aim_x << "," << aim_y << "," << aim_z << "," << pan_err << ","
+        << tilt_err << "\n";
 
     if (time > 1.0) {
       const double pan_error = gimbal_tracker::wrapPi(command_az - gimbal_az);
