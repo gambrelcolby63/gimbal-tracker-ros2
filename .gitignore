@@ -8,6 +8,8 @@ __pycache__/
 *.pyc
 .cache/
 compile_commands.json
+docs/demo/*.csv
+docs/demo/*.palette.png
 .vscode/
 *.user
 CMakeUserPresets.json
