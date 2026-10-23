@@ -54,6 +54,7 @@ void TargetKalmanFilter::initialize(const TargetState& prior_mean, double pos_va
   }
   initialized_ = true;
   last_nis_ = 0.0;
+  last_log_likelihood_ = 0.0;
 }
 
 void TargetKalmanFilter::initializeFromCartesian(const Eigen::Vector3d& measurement, double pos_var,
@@ -61,6 +62,18 @@ void TargetKalmanFilter::initializeFromCartesian(const Eigen::Vector3d& measurem
   TargetState prior;
   prior.position = {measurement(0), measurement(1), measurement(2)};
   initialize(prior, pos_var, vel_var, acc_var);
+}
+
+void TargetKalmanFilter::reset(const Eigen::VectorXd& mean, const Eigen::MatrixXd& covariance) {
+  if (mean.size() != n_ || covariance.rows() != n_ || covariance.cols() != n_) {
+    throw std::invalid_argument("Kalman reset dimension mismatch");
+  }
+  x_ = mean;
+  P_ = covariance;
+  symmetrize();
+  initialized_ = true;
+  last_nis_ = 0.0;
+  last_log_likelihood_ = 0.0;
 }
 
 void TargetKalmanFilter::initializeFromBearingRange(const Eigen::Vector3d& measurement,
@@ -153,6 +166,12 @@ void TargetKalmanFilter::applyUpdate(const Eigen::VectorXd& innovation, const Ei
   P_ = I_KH * P_ * I_KH.transpose() + K * R * K.transpose();
   symmetrize();
   last_nis_ = innovation.dot(llt.solve(innovation));
+  double log_det = 0.0;
+  const Eigen::MatrixXd lower = llt.matrixL();
+  for (int i = 0; i < nz; ++i) {
+    log_det += std::log(std::max(lower(i, i), 1.0e-300));
+  }
+  last_log_likelihood_ = -0.5 * (last_nis_ + 2.0 * log_det + static_cast<double>(nz) * std::log(2.0 * kPi));
 }
 
 void TargetKalmanFilter::updateCartesian(const Eigen::Vector3d& measurement,

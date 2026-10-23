@@ -11,9 +11,7 @@ class EstimatorNode : public rclcpp::Node {
  public:
   EstimatorNode() : Node("estimator") {
     cfg_ = gimbal_tracker_ros::loadNodeConfig(*this);
-    filter_ = std::make_unique<gimbal_tracker::TargetKalmanFilter>(
-        gimbal_tracker::TargetKalmanFilter::modelFromString(cfg_.sim.estimator.model),
-        cfg_.sim.estimator.accel_std, cfg_.sim.estimator.jerk_std);
+    filter_ = std::make_unique<gimbal_tracker::TargetEstimator>(cfg_.sim.estimator);
     pub_ = create_publisher<gimbal_tracker_msgs::msg::TargetEstimate>("/target/estimate", 10);
     sub_ = create_subscription<gimbal_tracker_msgs::msg::SensorMeasurement>(
         "/sensor/measurement", 10,
@@ -90,7 +88,7 @@ class EstimatorNode : public rclcpp::Node {
   }
 
   gimbal_tracker_ros::NodeConfig cfg_;
-  std::unique_ptr<gimbal_tracker::TargetKalmanFilter> filter_;
+  std::unique_ptr<gimbal_tracker::TargetEstimator> filter_;
   rclcpp::Publisher<gimbal_tracker_msgs::msg::TargetEstimate>::SharedPtr pub_;
   rclcpp::Subscription<gimbal_tracker_msgs::msg::SensorMeasurement>::SharedPtr sub_;
   rclcpp::Time last_stamp_{0, 0, RCL_ROS_TIME};

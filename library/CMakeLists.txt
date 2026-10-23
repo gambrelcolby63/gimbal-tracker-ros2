@@ -6,6 +6,7 @@ set(GIMBAL_TRACKER_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
 add_library(gimbal_tracker STATIC
   ${GIMBAL_TRACKER_ROOT}/src/config.cpp
   ${GIMBAL_TRACKER_ROOT}/src/controller.cpp
+  ${GIMBAL_TRACKER_ROOT}/src/imm.cpp
   ${GIMBAL_TRACKER_ROOT}/src/kalman.cpp
   ${GIMBAL_TRACKER_ROOT}/src/lead.cpp
   ${GIMBAL_TRACKER_ROOT}/src/monte_carlo.cpp

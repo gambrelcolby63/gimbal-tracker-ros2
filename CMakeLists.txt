@@ -20,7 +20,7 @@ option(GIMBAL_TRACKER_BUILD_APPS "Build analysis command-line tools" ON)
 add_subdirectory(library)
 
 if(GIMBAL_TRACKER_BUILD_APPS)
-  foreach(app step_response estimator_mc tracking_demo)
+  foreach(app step_response estimator_mc tracking_demo imm_comparison)
     add_executable(${app} apps/${app}.cpp)
     target_link_libraries(${app} PRIVATE gimbal_tracker)
     target_compile_options(${app} PRIVATE -Wall -Wextra -Wpedantic)
@@ -42,6 +42,7 @@ if(GIMBAL_TRACKER_BUILD_TESTS)
     tests/test_controller.cpp
     tests/test_kalman.cpp
     tests/test_lead.cpp
+    tests/test_imm.cpp
   )
   target_link_libraries(gimbal_tracker_tests PRIVATE gimbal_tracker GTest::gtest_main)
   target_compile_definitions(gimbal_tracker_tests PRIVATE
@@ -60,5 +61,5 @@ install(TARGETS gimbal_tracker
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES config/gimbal_tracker.yaml DESTINATION ${CMAKE_INSTALL_DATADIR}/gimbal_tracker)
 if(GIMBAL_TRACKER_BUILD_APPS)
-  install(TARGETS step_response estimator_mc tracking_demo RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+  install(TARGETS step_response estimator_mc tracking_demo imm_comparison RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()

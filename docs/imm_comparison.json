@@ -1,0 +1,22 @@
+{
+  "runs": 40,
+  "state_dim": 6,
+  "duration_s": 20.000000,
+  "dt_s": 0.050000,
+  "meas_std_m": 1.000000,
+  "turn_pos_rmse_cv": 6.905885,
+  "turn_pos_rmse_imm": 1.154588,
+  "straight_pos_rmse_cv": 5.553182,
+  "straight_pos_rmse_imm": 0.703762,
+  "speed_pos_rmse_cv": 3.609214,
+  "speed_pos_rmse_imm": 1.396056,
+  "weave_pos_rmse_cv": 6.261840,
+  "weave_pos_rmse_imm": 1.412933,
+  "turn_vel_rmse_cv": 8.334068,
+  "turn_vel_rmse_imm": 2.500556,
+  "mean_nees_cv": 3136.823849,
+  "mean_nees_imm": 49.419013,
+  "ct_probability_during_turn": 0.749405,
+  "ca_probability_during_speed_change": 0.617755,
+  "cv_probability_during_straight": 0.401913
+}

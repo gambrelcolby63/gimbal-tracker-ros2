@@ -26,6 +26,8 @@ class TargetKalmanFilter {
                                double acc_var);
   void initializeFromBearingRange(const Eigen::Vector3d& measurement, double pos_var,
                                   double vel_var, double acc_var);
+  // Replace the posterior. Used by the IMM to inject a mixed initial condition.
+  void reset(const Eigen::VectorXd& mean, const Eigen::MatrixXd& covariance);
 
   void predict(double dt);
   void updateCartesian(const Eigen::Vector3d& measurement, const Eigen::Matrix3d& covariance);
@@ -39,6 +41,8 @@ class TargetKalmanFilter {
   const Eigen::VectorXd& state() const { return x_; }
   const Eigen::MatrixXd& covariance() const { return P_; }
   double lastNis() const { return last_nis_; }
+  // Gaussian log density of the latest innovation, including log|S| and 2π.
+  double lastLogLikelihood() const { return last_log_likelihood_; }
 
   // Normalized estimation error squared against the matching truth components.
   double nees(const TargetState& truth) const;
@@ -60,6 +64,7 @@ class TargetKalmanFilter {
   Eigen::VectorXd x_;
   Eigen::MatrixXd P_;
   double last_nis_{0.0};
+  double last_log_likelihood_{0.0};
   bool initialized_{false};
 };
 
