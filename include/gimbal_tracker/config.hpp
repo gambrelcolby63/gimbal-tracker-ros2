@@ -3,6 +3,7 @@
 #include "gimbal_tracker/types.hpp"
 
 #include <string>
+#include <vector>
 
 namespace gimbal_tracker {
 
@@ -56,9 +57,11 @@ struct ControllerConfig {
 };
 
 struct EstimatorConfig {
-  std::string model{"cv"};  // "cv" or "ca"
+  std::string model{"cv"};  // "cv", "ca", "ct", or "imm"
   double accel_std{0.5};    // piecewise-constant acceleration std, CV process model
   double jerk_std{1.0};     // piecewise-constant jerk std, CA process model
+  double ct_accel_std{0.5}; // small along-track noise inside the turn model
+  double turn_rate_std{0.2};  // random-walk intensity of turn rate, rad/s/sqrt(s)
   double cartesian_std{0.4};
   double azimuth_std{0.002};
   double elevation_std{0.002};
@@ -66,6 +69,14 @@ struct EstimatorConfig {
   double p0_pos{25.0};
   double p0_vel{100.0};
   double p0_acc{25.0};
+  double p0_turn_rate{0.05};  // rad^2/s^2
+  // Mean time a mode stays selected before the Markov chain leaves it.
+  double imm_sojourn_cv_s{8.0};
+  double imm_sojourn_ca_s{4.0};
+  double imm_sojourn_ct_s{5.0};
+  double imm_mu_cv{0.5};
+  double imm_mu_ca{0.25};
+  double imm_mu_ct{0.25};
 };
 
 struct LeadConfig {
@@ -76,14 +87,34 @@ struct LeadConfig {
   Vec3 muzzle{0.0, 0.0, 0.0};
 };
 
+// One leg of a maneuver sequence. Unused fields stay at 0 and the parent
+// TargetConfig supplies the default turn rate or weave.
+struct MotionSegment {
+  std::string kind{"straight"};  // straight, coordinated_turn, speed_change, weave
+  double duration_s{1.0};
+  double turn_rate{0.0};         // rad/s, positive is a left turn
+  double speed_m_s{0.0};         // horizontal speed at the end of a speed_change
+  double weave_amplitude{0.0};   // rad of heading
+  double weave_omega{0.0};       // rad/s
+};
+
 struct TargetConfig {
   Vec3 position{50.0, -40.0, 3.0};
   Vec3 velocity{0.0, 12.0, 0.0};
   Vec3 acceleration{0.0, 0.0, 0.0};
-  std::string trajectory{"constant_velocity"};  // constant_velocity, constant_acceleration, circle
+  // constant_velocity, constant_acceleration, circle, coordinated_turn,
+  // speed_change, weave, or sequence.
+  std::string trajectory{"constant_velocity"};
   double circle_radius{30.0};
   double circle_omega{0.2};
   double circle_z{5.0};
+  double turn_rate{0.3};
+  double weave_amplitude{0.4};
+  double weave_omega{1.0};
+  double speed_ramp_s{1.0};
+  double speed_final_m_s{20.0};
+  double speed_change_time_s{4.0};
+  std::vector<MotionSegment> segments;
 };
 
 struct AnalysisConfig {
@@ -101,6 +132,11 @@ struct AnalysisConfig {
   double mc_meas_std{0.5};
   double tracking_duration_s{8.0};
   double tracking_dt_s{0.01};
+  int imm_runs{40};
+  double imm_duration_s{20.0};
+  double imm_dt_s{0.05};
+  unsigned imm_seed{21};
+  double imm_meas_std{1.0};
 };
 
 struct RosConfig {
@@ -116,6 +152,7 @@ struct SimConfig {
   EstimatorConfig estimator;
   LeadConfig lead;
   TargetConfig target;
+  TargetConfig maneuver;  // scenario used by the IMM comparison, not the flyby
   AnalysisConfig analysis;
   RosConfig ros;
 };

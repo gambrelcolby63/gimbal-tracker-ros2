@@ -14,9 +14,9 @@ This is a closed-loop controls exercise: a motor model, cascaded PID, a Kalman f
 
 A turret at the origin has to keep a pan/tilt gimbal on a target it cannot measure cleanly.
 
-1. A trajectory generator flies the target (constant velocity, constant acceleration, or a horizontal circle).
+1. A trajectory generator flies the target: constant velocity, constant acceleration, a circle, or a sequence of straights, coordinated turns, speed changes, and weaves.
 2. A sensor adds noise, either in Cartesian position or in azimuth, elevation, and range.
-3. A constant-velocity or constant-acceleration Kalman filter estimates the target. Bearing/range measurements use an EKF update.
+3. A Kalman filter estimates the target. The shipped flyby uses constant velocity. A coordinated-turn model and an interacting multiple-model filter are there for maneuvering paths. Bearing/range measurements use an EKF update.
 4. A lead solver finds the launch direction whose projectile meets the target. Gravity is optional and, when enabled, is vacuum drop only.
 5. Cascaded position and rate loops drive each gimbal axis. The plant includes motor electrical dynamics, inertia, viscous and Coulomb friction, and voltage, torque, and rate limits.
 
@@ -40,9 +40,9 @@ The two axes are independent. That is the usual model for a mass-balanced gimbal
 | --- | --- |
 | `include/gimbal_tracker/`, `src/` | C++17 library. No ROS headers. |
 | `config/gimbal_tracker.yaml` | Plant, gains, filter, lead, and trajectory tuning. |
-| `tests/` | GoogleTest for the controller, Kalman filter, and lead solver. |
-| `apps/` | Step response, Monte Carlo consistency, and closed-loop flyby. |
-| `scripts/` | Bode / step metrics (`python-control`), NEES / RMSE plots, and the flyby animation. |
+| `tests/` | GoogleTest for the controller, Kalman filter, coordinated turn, IMM, and lead solver. |
+| `apps/` | Step response, Monte Carlo consistency, closed-loop flyby, and the CV-versus-IMM study. |
+| `scripts/` | Bode / step metrics (`python-control`), NEES / RMSE plots, and the flyby and maneuver animations. |
 | `docs/` | Generated plots, metric JSON, and `docs/demo/` (MP4 and GIF). |
 | `ros2_ws/` | Humble messages, five nodes, launch file, RViz config. |
 | `Dockerfile`, `.devcontainer/` | Humble dev container for local use or Codespaces. |
@@ -135,6 +135,34 @@ h(p) = \begin{bmatrix} \operatorname{atan2}(y, x) \\ \operatorname{atan2}(z, \sq
 
 The update linearizes \(h\) at the predicted state. The azimuth innovation is wrapped to \((-\pi, \pi]\) so a target crossing the negative x-axis does not look like a \(2\pi\) jump. On the boresight axis, where azimuth is undefined, that row is dropped.
 
+### Coordinated turn
+
+The turn model flies a horizontal arc at a nearly constant rate \(\omega\). Altitude stays on the constant-velocity model. With state \([p^\top, v^\top, \omega]^\top\),
+
+\[
+\begin{aligned}
+p_x^+ &= p_x + \big(v_x \sin\omega\Delta t - v_y (1 - \cos\omega\Delta t)\big) / \omega \\
+p_y^+ &= p_y + \big(v_x (1 - \cos\omega\Delta t) + v_y \sin\omega\Delta t\big) / \omega \\
+v_x^+ &= v_x \cos\omega\Delta t - v_y \sin\omega\Delta t \\
+v_y^+ &= v_x \sin\omega\Delta t + v_y \cos\omega\Delta t
+\end{aligned}
+\]
+
+A tiny \(\omega\) uses the straight-line limit, so the mean and the Jacobian agree. Process noise is the same white acceleration as the constant-velocity model, plus a random walk on \(\omega\).
+
+### Interacting multiple model
+
+One Kalman filter has to pick a motion model before the target has shown it. An interacting multiple model runs three filters at once — straight flight (CV), accelerating flight (CA), and a coordinated turn (CT) — and keeps a probability for each.
+
+Each step does four things:
+
+1. **Mix.** The filters trade a probability-weighted position and velocity. Acceleration stays inside the CA filter, and turn rate stays inside the CT filter. Writing those extra states in as zeros would wipe the turn rate on every straight-flight cycle.
+2. **Predict and update.** Each filter sees the same measurement.
+3. **Reweight.** The filter that expected the measurement gains probability. The weights are the Gaussian likelihoods, normalized with a log-sum-exp.
+4. **Combine.** The reported position and velocity are the weighted average. Reported acceleration is the CA acceleration plus the centripetal acceleration \(\omega \times v\) of the turn model.
+
+A mode is expected to last its sojourn time (8 s, 3 s, and 4 s in the shipped file). Whatever probability that leaves is split across the other two modes. Select `model: imm` or `model: ct` in the YAML. The flyby above stays on `cv`.
+
 ## Lead solver
 
 The projectile leaves the muzzle at constant speed \(s\). With no drag and no gravity, the intercept time is the smallest positive root of
@@ -197,6 +225,33 @@ The flyby is the shipped target: it starts at \((50, -40, 3)\,\mathrm{m}\) and c
 
 ![Closed-loop flyby](docs/tracking.png)
 
+### Maneuvering targets
+
+A constant-velocity filter lags as soon as the target stops flying straight. The comparison below is the `maneuver` block in the YAML, not the flyby. The target starts at \((30, -45, 4)\,\mathrm{m}\) going north at 14 m/s, coasts for 4 s, turns for 5 s at 0.35 rad/s (a 40 m radius), coasts for 3 s, speeds up to 22 m/s, then weaves for 6 s. Forty Monte Carlo runs share the same 1 m position noise. `scripts/run_analysis.sh` writes the plots.
+
+<img src="docs/demo/maneuver.gif" alt="Side-by-side of one maneuver. The constant-velocity estimate cuts the corner of the turn and the weave. The interacting multiple-model estimate stays on the path. A strip chart shows the straight, acceleration, and turn probabilities." width="360">
+
+The clip is one run of that scenario, slowed slightly. The left map is the constant-velocity filter. The right map is the mixture. The strip is that run's model probability.
+
+| Leg | CV position RMSE | IMM position RMSE |
+| --- | ---: | ---: |
+| Straight | 5.55 m | 0.70 m |
+| Coordinated turn | 6.91 m | 1.15 m |
+| Speed change | 3.61 m | 1.40 m |
+| Weave | 6.26 m | 1.41 m |
+
+On the turn, velocity RMSE is 8.33 m/s for the constant-velocity filter and 2.50 m/s for the IMM. Averaged over the forty runs, the turn model holds probability **0.75** during the turn, the acceleration model holds **0.62** during the speed change, and the constant-velocity model holds **0.40** on the straight legs. That last number is pulled down by the coast that follows the turn: the turn model is slow to hand probability back. On the single run in the clip, constant velocity leads the opening straight, the turn model takes the turn and the weave, and the acceleration model takes the speed change.
+
+Mean NEES on the six kinematic states is **3.14×10³** for the constant-velocity filter and **49** for the IMM. The 95% band for forty runs is \([4.97, 7.12]\). The mixture is much less wrong, and it is not chi-squared consistent.
+
+![Position and velocity RMSE through the maneuver](docs/imm_rmse.png)
+
+![NEES of the IMM and of the constant-velocity filter](docs/imm_nees.png)
+
+![Mean IMM model probabilities](docs/imm_probabilities.png)
+
+Limits worth keeping in view: the turn is horizontal only. Model-specific states are not mixed across modes. The combined covariance is a moment-matched Gaussian, which is why the NEES test is not clean. Sojourn times are tuning knobs. This study is still the simulator: no seeker, weapon, or platform.
+
 ## How to run
 
 Dependencies for the library: CMake, a C++17 compiler, Eigen3, yaml-cpp. Analysis also wants Python 3 with the packages in `requirements.txt` (`numpy`, `scipy`, `matplotlib`, `PyYAML`, `control`).
@@ -215,9 +270,15 @@ The phone-friendly flyby above is regenerated with the same library and YAML. It
 PYTHON=python BUILD_DIR="$PWD/build" bash scripts/make_flyby_demo.sh
 ```
 
-That writes `docs/demo/flyby.mp4` and `docs/demo/flyby.gif` (about 24 seconds, portrait).
+That writes `docs/demo/flyby.mp4` and `docs/demo/flyby.gif` (about 24 seconds, portrait). The maneuver comparison is the same idea:
 
-`ctest` covers the cascaded loop (step specs, wrap, rate saturation, anti-windup, ramp feedforward), the CV and CA filters (scalar update, process-noise \(Q\), NEES/NIS, bearing Jacobian, azimuth branch cut), and the lead solver (closed-form intercepts, unreachable targets, vacuum drop).
+```bash
+PYTHON=python BUILD_DIR="$PWD/build" bash scripts/make_imm_demo.sh
+```
+
+That writes `docs/demo/maneuver.mp4` and `docs/demo/maneuver.gif`. The RMSE, NEES, and probability plots come from `scripts/run_analysis.sh`, which also fails if the IMM turn-position RMSE is not below the constant-velocity filter.
+
+`ctest` covers the cascaded loop (step specs, wrap, rate saturation, anti-windup, ramp feedforward), the CV and CA filters (scalar update, process-noise \(Q\), NEES/NIS, bearing Jacobian, azimuth branch cut), the coordinated-turn model and the IMM mix, and the lead solver (closed-form intercepts, unreachable targets, vacuum drop).
 
 ### ROS 2 Humble
 

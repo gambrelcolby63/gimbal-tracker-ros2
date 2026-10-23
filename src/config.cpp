@@ -52,6 +52,13 @@ std::string asString(const YAML::Node& node, const char* key, const std::string&
   }
 }
 
+double optionalDouble(const YAML::Node& node, const char* key, double fallback) {
+  if (!node || !node[key]) {
+    return fallback;
+  }
+  return node[key].as<double>();
+}
+
 Vec3 asVec3(const YAML::Node& node, const char* key, const std::string& where) {
   const YAML::Node value = child(node, key, where);
   if (!value.IsSequence() || value.size() != 3) {
@@ -132,6 +139,77 @@ AxisControllerConfig loadAxisController(const YAML::Node& node, const std::strin
   return axis;
 }
 
+MotionSegment loadSegment(const YAML::Node& node, const TargetConfig& parent, const std::string& where) {
+  MotionSegment segment;
+  segment.kind = asString(node, "kind", where);
+  segment.duration_s = asDouble(node, "duration_s", where);
+  segment.turn_rate = optionalDouble(node, "turn_rate_rad_s", parent.turn_rate);
+  segment.speed_m_s = optionalDouble(node, "speed_m_s", parent.speed_final_m_s);
+  segment.weave_amplitude = optionalDouble(node, "weave_amplitude_rad", parent.weave_amplitude);
+  segment.weave_omega = optionalDouble(node, "weave_omega_rad_s", parent.weave_omega);
+  if (segment.kind != "straight" && segment.kind != "coordinated_turn" && segment.kind != "speed_change" &&
+      segment.kind != "weave") {
+    throw std::runtime_error(where + ".kind must be straight, coordinated_turn, speed_change, or weave");
+  }
+  requirePositive(segment.duration_s, where + ".duration_s");
+  if (segment.kind == "speed_change") {
+    requirePositive(segment.speed_m_s, where + ".speed_m_s");
+  }
+  if (segment.kind == "weave") {
+    requirePositive(segment.weave_omega, where + ".weave_omega_rad_s");
+    requireNonNegative(std::abs(segment.weave_amplitude), where + ".weave_amplitude_rad");
+  }
+  return segment;
+}
+
+void validateTrajectory(TargetConfig& target, const std::string& where, bool require_segments) {
+  const std::string& name = target.trajectory;
+  const bool known = name == "constant_velocity" || name == "constant_acceleration" || name == "circle" ||
+                     name == "coordinated_turn" || name == "speed_change" || name == "weave" || name == "sequence";
+  if (!known) {
+    throw std::runtime_error(where +
+                             ".trajectory must be constant_velocity, constant_acceleration, circle, "
+                             "coordinated_turn, speed_change, weave, or sequence");
+  }
+  requirePositive(target.circle_radius, where + ".circle_radius_m");
+  requireNonNegative(target.speed_ramp_s, where + ".speed_ramp_s");
+  requireNonNegative(target.speed_final_m_s, where + ".speed_final_m_s");
+  requireNonNegative(target.speed_change_time_s, where + ".speed_change_time_s");
+  requireNonNegative(std::abs(target.weave_amplitude), where + ".weave_amplitude_rad");
+  if (name == "weave" || name == "sequence") {
+    requireNonNegative(std::abs(target.weave_omega), where + ".weave_omega_rad_s");
+  }
+  if (name == "sequence" && target.segments.empty() && require_segments) {
+    throw std::runtime_error(where + " sequence needs at least one segment");
+  }
+}
+
+TargetConfig loadTarget(const YAML::Node& node, const std::string& where, bool require_segments) {
+  TargetConfig target;
+  target.position = asVec3(node, "position_m", where);
+  target.velocity = asVec3(node, "velocity_m_s", where);
+  target.acceleration = asVec3(node, "acceleration_m_s2", where);
+  target.trajectory = asString(node, "trajectory", where);
+  target.circle_radius = asDouble(node, "circle_radius_m", where);
+  target.circle_omega = asDouble(node, "circle_omega_rad_s", where);
+  target.circle_z = asDouble(node, "circle_z_m", where);
+  target.turn_rate = asDouble(node, "turn_rate_rad_s", where);
+  target.weave_amplitude = asDouble(node, "weave_amplitude_rad", where);
+  target.weave_omega = asDouble(node, "weave_omega_rad_s", where);
+  target.speed_ramp_s = asDouble(node, "speed_ramp_s", where);
+  target.speed_final_m_s = asDouble(node, "speed_final_m_s", where);
+  target.speed_change_time_s = asDouble(node, "speed_change_time_s", where);
+  const YAML::Node segments = child(node, "segments", where);
+  if (!segments.IsSequence()) {
+    throw std::runtime_error(where + ".segments must be a list");
+  }
+  for (std::size_t i = 0; i < segments.size(); ++i) {
+    target.segments.push_back(loadSegment(segments[i], target, where + ".segments[" + std::to_string(i) + "]"));
+  }
+  validateTrajectory(target, where, require_segments);
+  return target;
+}
+
 }  // namespace
 
 SimConfig loadConfig(const std::string& path) {
@@ -160,11 +238,21 @@ SimConfig loadConfig(const std::string& path) {
 
   const YAML::Node estimator = child(root, "estimator", "root");
   cfg.estimator.model = asString(estimator, "model", "estimator");
-  if (cfg.estimator.model != "cv" && cfg.estimator.model != "ca") {
-    throw std::runtime_error("estimator.model must be 'cv' or 'ca'");
+  if (cfg.estimator.model != "cv" && cfg.estimator.model != "ca" && cfg.estimator.model != "ct" &&
+      cfg.estimator.model != "imm") {
+    throw std::runtime_error("estimator.model must be 'cv', 'ca', 'ct', or 'imm'");
   }
   cfg.estimator.accel_std = asDouble(estimator, "accel_std_m_s2", "estimator");
   cfg.estimator.jerk_std = asDouble(estimator, "jerk_std_m_s3", "estimator");
+  cfg.estimator.ct_accel_std = asDouble(estimator, "ct_accel_std_m_s2", "estimator");
+  cfg.estimator.turn_rate_std = asDouble(estimator, "turn_rate_std_rad_s_sqrt_s", "estimator");
+  cfg.estimator.p0_turn_rate = asDouble(estimator, "p0_turn_rate_var", "estimator");
+  cfg.estimator.imm_sojourn_cv_s = asDouble(estimator, "imm_sojourn_cv_s", "estimator");
+  cfg.estimator.imm_sojourn_ca_s = asDouble(estimator, "imm_sojourn_ca_s", "estimator");
+  cfg.estimator.imm_sojourn_ct_s = asDouble(estimator, "imm_sojourn_ct_s", "estimator");
+  cfg.estimator.imm_mu_cv = asDouble(estimator, "imm_mu_cv", "estimator");
+  cfg.estimator.imm_mu_ca = asDouble(estimator, "imm_mu_ca", "estimator");
+  cfg.estimator.imm_mu_ct = asDouble(estimator, "imm_mu_ct", "estimator");
   cfg.estimator.cartesian_std = asDouble(estimator, "cartesian_std_m", "estimator");
   cfg.estimator.azimuth_std = asDouble(estimator, "azimuth_std_rad", "estimator");
   cfg.estimator.elevation_std = asDouble(estimator, "elevation_std_rad", "estimator");
@@ -181,6 +269,15 @@ SimConfig loadConfig(const std::string& path) {
   requirePositive(cfg.estimator.p0_pos, "estimator.p0_pos_var_m2");
   requirePositive(cfg.estimator.p0_vel, "estimator.p0_vel_var_m2_s2");
   requirePositive(cfg.estimator.p0_acc, "estimator.p0_acc_var_m2_s4");
+  requireNonNegative(cfg.estimator.ct_accel_std, "estimator.ct_accel_std_m_s2");
+  requireNonNegative(cfg.estimator.turn_rate_std, "estimator.turn_rate_std_rad_s_sqrt_s");
+  requirePositive(cfg.estimator.p0_turn_rate, "estimator.p0_turn_rate_var");
+  requirePositive(cfg.estimator.imm_sojourn_cv_s, "estimator.imm_sojourn_cv_s");
+  requirePositive(cfg.estimator.imm_sojourn_ca_s, "estimator.imm_sojourn_ca_s");
+  requirePositive(cfg.estimator.imm_sojourn_ct_s, "estimator.imm_sojourn_ct_s");
+  if (cfg.estimator.imm_mu_cv < 0.0 || cfg.estimator.imm_mu_ca < 0.0 || cfg.estimator.imm_mu_ct < 0.0) {
+    throw std::runtime_error("IMM initial probabilities must be non-negative");
+  }
 
   const YAML::Node lead = child(root, "lead", "root");
   cfg.lead.projectile_speed = asDouble(lead, "projectile_speed_m_s", "lead");
@@ -195,19 +292,8 @@ SimConfig loadConfig(const std::string& path) {
   }
   requirePositive(cfg.lead.tolerance, "lead.tolerance_s");
 
-  const YAML::Node target = child(root, "target", "root");
-  cfg.target.position = asVec3(target, "position_m", "target");
-  cfg.target.velocity = asVec3(target, "velocity_m_s", "target");
-  cfg.target.acceleration = asVec3(target, "acceleration_m_s2", "target");
-  cfg.target.trajectory = asString(target, "trajectory", "target");
-  cfg.target.circle_radius = asDouble(target, "circle_radius_m", "target");
-  cfg.target.circle_omega = asDouble(target, "circle_omega_rad_s", "target");
-  cfg.target.circle_z = asDouble(target, "circle_z_m", "target");
-  if (cfg.target.trajectory != "constant_velocity" &&
-      cfg.target.trajectory != "constant_acceleration" && cfg.target.trajectory != "circle") {
-    throw std::runtime_error(
-        "target.trajectory must be constant_velocity, constant_acceleration, or circle");
-  }
+  cfg.target = loadTarget(child(root, "target", "root"), "target", false);
+  cfg.maneuver = loadTarget(child(root, "maneuver", "root"), "maneuver", true);
 
   const YAML::Node analysis = child(root, "analysis", "root");
   cfg.analysis.step_rad = asDouble(analysis, "step_rad", "analysis");
@@ -224,14 +310,25 @@ SimConfig loadConfig(const std::string& path) {
   cfg.analysis.mc_meas_std = asDouble(analysis, "mc_meas_std", "analysis");
   cfg.analysis.tracking_duration_s = asDouble(analysis, "tracking_duration_s", "analysis");
   cfg.analysis.tracking_dt_s = asDouble(analysis, "tracking_dt_s", "analysis");
+  cfg.analysis.imm_runs = asInt(analysis, "imm_runs", "analysis");
+  cfg.analysis.imm_duration_s = asDouble(analysis, "imm_duration_s", "analysis");
+  cfg.analysis.imm_dt_s = asDouble(analysis, "imm_dt_s", "analysis");
+  cfg.analysis.imm_seed = static_cast<unsigned>(asInt(analysis, "imm_seed", "analysis"));
+  cfg.analysis.imm_meas_std = asDouble(analysis, "imm_meas_std_m", "analysis");
   requirePositive(cfg.analysis.step_duration_s, "analysis.step_duration_s");
   requirePositive(cfg.analysis.step_dt_s, "analysis.step_dt_s");
   requirePositive(cfg.analysis.mc_duration_s, "analysis.mc_duration_s");
   requirePositive(cfg.analysis.mc_dt_s, "analysis.mc_dt_s");
   requirePositive(cfg.analysis.tracking_duration_s, "analysis.tracking_duration_s");
   requirePositive(cfg.analysis.tracking_dt_s, "analysis.tracking_dt_s");
+  requirePositive(cfg.analysis.imm_duration_s, "analysis.imm_duration_s");
+  requirePositive(cfg.analysis.imm_dt_s, "analysis.imm_dt_s");
+  requirePositive(cfg.analysis.imm_meas_std, "analysis.imm_meas_std_m");
   if (cfg.analysis.mc_runs < 1) {
     throw std::runtime_error("analysis.mc_runs must be at least 1");
+  }
+  if (cfg.analysis.imm_runs < 1) {
+    throw std::runtime_error("analysis.imm_runs must be at least 1");
   }
 
   const YAML::Node ros = child(root, "ros", "root");

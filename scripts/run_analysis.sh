@@ -25,3 +25,13 @@ mkdir -p "$ROOT/docs"
 "$PYTHON" "$ROOT/scripts/analyze_tracking.py" \
   --csv "$ROOT/docs/tracking.csv" \
   --out-dir "$ROOT/docs"
+
+mkdir -p "$ROOT/docs/demo"
+"$BUILD/imm_comparison" "$CFG" \
+  "$ROOT/docs/imm_comparison.csv" \
+  "$ROOT/docs/imm_comparison.json" \
+  "$ROOT/docs/demo/maneuver_trace.csv"
+"$PYTHON" "$ROOT/scripts/analyze_imm.py" \
+  --csv "$ROOT/docs/imm_comparison.csv" \
+  --summary "$ROOT/docs/imm_comparison.json" \
+  --out-dir "$ROOT/docs"

@@ -79,10 +79,14 @@ controller:
     wrap_error: false
 
 estimator:
-  # cv: piecewise-constant white acceleration. ca: piecewise-constant white jerk.
+  # cv, ca, ct (coordinated turn), or imm (CV + CA + CT).
+  # The shipped flyby stays on cv. The maneuver study selects imm in code.
   model: cv
   accel_std_m_s2: 0.4
   jerk_std_m_s3: 1.0
+  ct_accel_std_m_s2: 0.35
+  # Random-walk intensity of the turn rate, rad/s per sqrt(second).
+  turn_rate_std_rad_s_sqrt_s: 0.12
   cartesian_std_m: 0.35
   azimuth_std_rad: 0.002
   elevation_std_rad: 0.002
@@ -90,6 +94,14 @@ estimator:
   p0_pos_var_m2: 4.0
   p0_vel_var_m2_s2: 25.0
   p0_acc_var_m2_s4: 4.0
+  p0_turn_rate_var: 0.04
+  # Mean time a mode stays selected. Off-diagonal probability is split evenly.
+  imm_sojourn_cv_s: 8.0
+  imm_sojourn_ca_s: 3.0
+  imm_sojourn_ct_s: 4.0
+  imm_mu_cv: 0.50
+  imm_mu_ca: 0.25
+  imm_mu_ct: 0.25
 
 lead:
   # Constant projectile speed. gravity_m_s2 = 0 is pure kinematic lead;
@@ -101,6 +113,8 @@ lead:
   muzzle_m: [0.0, 0.0, 0.0]
 
 target:
+  # constant_velocity, constant_acceleration, circle, coordinated_turn,
+  # speed_change, weave, or sequence.
   trajectory: constant_velocity
   position_m: [50.0, -40.0, 3.0]
   velocity_m_s: [0.0, 12.0, 0.0]
@@ -108,6 +122,35 @@ target:
   circle_radius_m: 40.0
   circle_omega_rad_s: 0.15
   circle_z_m: 4.0
+  turn_rate_rad_s: 0.30
+  weave_amplitude_rad: 0.40
+  weave_omega_rad_s: 1.10
+  speed_ramp_s: 1.5
+  speed_final_m_s: 20.0
+  speed_change_time_s: 4.0
+  segments: []
+
+# Scenario for the CV-versus-IMM study. Not used by the straight flyby.
+maneuver:
+  trajectory: sequence
+  position_m: [30.0, -45.0, 4.0]
+  velocity_m_s: [0.0, 14.0, 0.0]
+  acceleration_m_s2: [0.0, 0.0, 0.0]
+  circle_radius_m: 40.0
+  circle_omega_rad_s: 0.15
+  circle_z_m: 4.0
+  turn_rate_rad_s: 0.35
+  weave_amplitude_rad: 0.45
+  weave_omega_rad_s: 1.10
+  speed_ramp_s: 1.5
+  speed_final_m_s: 22.0
+  speed_change_time_s: 0.0
+  segments:
+    - {kind: straight, duration_s: 4.0}
+    - {kind: coordinated_turn, duration_s: 5.0, turn_rate_rad_s: 0.35}
+    - {kind: straight, duration_s: 3.0}
+    - {kind: speed_change, duration_s: 2.0, speed_m_s: 22.0}
+    - {kind: weave, duration_s: 6.0, weave_amplitude_rad: 0.45, weave_omega_rad_s: 1.10}
 
 analysis:
   step_rad: 0.25
@@ -124,6 +167,11 @@ analysis:
   mc_meas_std: 0.5
   tracking_duration_s: 8.0
   tracking_dt_s: 0.01
+  imm_runs: 40
+  imm_duration_s: 20.0
+  imm_dt_s: 0.05
+  imm_seed: 21
+  imm_meas_std_m: 1.0
 
 ros:
   rate_hz: 200.0
